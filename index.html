@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSCE 呼び出しシステム</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 20px; background: #f0f4f8; }
+    .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 600px; margin: 0 auto; }
+    h1 { color: #333; }
+    .display { font-size: 3rem; font-weight: bold; color: #d9534f; margin: 20px 0; min-height: 4.5rem; }
+    button { font-size: 1.2rem; padding: 12px 24px; margin: 10px; border: none; border-radius: 6px; cursor: pointer; }
+    .btn-call { background: #0275d8; color: white; }
+    .btn-reset { background: #5cb85c; color: white; }
+    .mode-select { margin-bottom: 20px; padding: 10px; background: #e9ecef; border-radius: 6px; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <!-- 役割選択 -->
+  <div class="mode-select">
+    <label><input type="radio" name="role" value="parent" checked onclick="switchRole()"> 親機（操作PC）</label>
+    &nbsp;&nbsp;
+    <label><input type="radio" name="role" value="child" onclick="switchRole()"> 子機（待機室タブレット）</label>
+  </div>
+
+  <h1 id="title">親機 コントロールパネル</h1>
+  
+  <!-- 表示エリア -->
+  <div id="statusDisplay" class="display">待機中</div>
+
+  <!-- 親機用操作ボタン -->
+  <div id="parentControls">
+    <input type="text" id="studentName" placeholder="呼び出す学生名・番号" style="font-size:1.2rem; padding:8px;">
+    <br><br>
+    <button class="btn-call" onclick="sendCall()">呼出音を鳴らして表示</button>
+    <button class="btn-reset" onclick="sendReset()">リセット</button>
+  </div>
+
+  <!-- 子機用 音声有効化ボタン（ブラウザの自動再生ブロック対策） -->
+  <div id="childControls" style="display:none;">
+    <p style="color:666; font-size:0.9rem;">※タブレット設置時、最初に下のボタンを1回押してください</p>
+    <button onclick="enableAudio()" style="background:#f0ad4e; color:white;">音声を有効化する</button>
+  </div>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+<script>
+  // ★★★ STEP 1で作成したFirebaseのURLをここに貼り付けます ★★★
+  const FIREBASE_DB_URL = "https://b-osce-default-rtdb.firebaseio.com/";
+
+  // Firebaseの初期化
+  firebase.initializeApp({ databaseURL: FIREBASE_DB_URL });
+  const database = firebase.database();
+  const signalRef = database.ref("osce_signal");
+
+  // Web Audio APIによる呼び出し音生成（音声ファイル不要）
+  let audioCtx = null;
+
+  function playChime() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // ピンポンパンポン（4音階）の合成音を作成
+    const notes = [523.25, 659.25, 587.33, 392.00]; // C5, E5, D5, G4
+    const times = [0, 0.4, 0.8, 1.2];
+
+    notes.forEach((freq, index) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      
+      gain.gain.setValueAtTime(0.5, audioCtx.currentTime + times[index]);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + times[index] + 0.8);
+      
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      
+      osc.start(audioCtx.currentTime + times[index]);
+      osc.stop(audioCtx.currentTime + times[index] + 0.8);
+    });
+  }
+
+  function enableAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    alert("音声出力が有効になりました。");
+  }
+
+  // 親機：送信処理
+  function sendCall() {
+    const name = document.getElementById("studentName").value || "次のグループ";
+    signalRef.set({
+      type: "CALL",
+      text: name + " 入室してください",
+      timestamp: Date.now()
+    });
+  }
+
+  function sendReset() {
+    signalRef.set({
+      type: "RESET",
+      text: "待機中",
+      timestamp: Date.now()
+    });
+  }
+
+  // 子機：リアルタイム受信処理
+  signalRef.on("value", (snapshot) => {
+    const data = snapshot.val();
+    if (!data) return;
+
+    document.getElementById("statusDisplay").innerText = data.text;
+
+    // 子機モードかつCALL信号を受信した場合にチャイムを鳴らす
+    const isChild = document.querySelector('input[name="role"]:checked').value === "child";
+    if (isChild && data.type === "CALL") {
+      playChime();
+    }
+  });
+
+  // UI切り替え
+  function switchRole() {
+    const role = document.querySelector('input[name="role"]:checked').value;
+    if (role === "parent") {
+      document.getElementById("title").innerText = "親機 コントロールパネル";
+      document.getElementById("parentControls").style.display = "block";
+      document.getElementById("childControls").style.display = "none";
+    } else {
+      document.getElementById("title").innerText = "子機 呼び出し表示モニタ";
+      document.getElementById("parentControls").style.display = "none";
+      document.getElementById("childControls").style.display = "block";
+    }
+  }
+</script>
+</body>
+</html>
