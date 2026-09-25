@@ -49,8 +49,12 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
 <script>
-  // ★★★ STEP 1で作成したFirebaseのURLをここに貼り付けます ★★★
+  // ★★★ Firebase URL ★★★
   const FIREBASE_DB_URL = "https://b-osce-default-rtdb.firebaseio.com/";
 
   // Firebaseの初期化
@@ -58,13 +62,14 @@
   const database = firebase.database();
   const signalRef = database.ref("osce_signal");
 
-  // Web Audio APIによる呼び出し音生成（音声ファイル不要）
+  // Web Audio API（チャイム音生成用）
   let audioCtx = null;
 
-  function playChime() {
+  // 1. チャイム音（ピンポンパンポン）を鳴らし、終わったらテキストを読み上げる関数
+  function playChimeAndSpeech(textToSpeech) {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
     
-    // ピンポンパンポン（4音階）の合成音を作成
     const notes = [523.25, 659.25, 587.33, 392.00]; // C5, E5, D5, G4
     const times = [0, 0.4, 0.8, 1.2];
 
@@ -83,12 +88,35 @@
       osc.start(audioCtx.currentTime + times[index]);
       osc.stop(audioCtx.currentTime + times[index] + 0.8);
     });
+
+    // チャイム音が鳴り終わるタイミング（約2秒後）に日本語音声を再生
+    setTimeout(() => {
+      speakText(textToSpeech);
+    }, 2000);
   }
 
+  // 2. 音声合成（Web Speech API）でテキストを読み上げる関数
+  function speakText(text) {
+    if (!('speechSynthesis' in window)) return;
+
+    // 現在再生中の音声があればキャンセル
+    window.speechSynthesis.cancel();
+
+    const uttr = new SpeechSynthesisUtterance(text);
+    uttr.lang = 'ja-JP';  // 日本語指定
+    uttr.rate = 1.0;      // 読み上げ速度 (1.0 = 標準)
+    uttr.pitch = 1.0;     // 声の高さ (1.0 = 標準)
+
+    window.speechSynthesis.speak(uttr);
+  }
+
+  // 音声有効化ボタン（ブラウザの自動再生ブロック対策）
   function enableAudio() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    alert("音声出力が有効になりました。");
+    
+    // サンプルの音声発話でブラウザのブロックを解除
+    speakText("音声を有効化しました。");
   }
 
   // 親機：送信処理
@@ -96,12 +124,13 @@
     const name = document.getElementById("studentName").value || "次のグループ";
     signalRef.set({
       type: "CALL",
-      text: name + " 入室してください",
+      text: name + " にゅうしつ、してください",
       timestamp: Date.now()
     });
   }
 
   function sendReset() {
+    window.speechSynthesis.cancel(); // 読み上げも停止
     signalRef.set({
       type: "RESET",
       text: "待機中",
@@ -116,10 +145,11 @@
 
     document.getElementById("statusDisplay").innerText = data.text;
 
-    // 子機モードかつCALL信号を受信した場合にチャイムを鳴らす
+    // 子機モードかつCALL信号を受信した場合
     const isChild = document.querySelector('input[name="role"]:checked').value === "child";
     if (isChild && data.type === "CALL") {
-      playChime();
+      // チャイムを鳴らし、その後に「〇〇 入室してください」と読み上げる
+      playChimeAndSpeech(data.text);
     }
   });
 
