@@ -104,7 +104,7 @@
 
     const uttr = new SpeechSynthesisUtterance(text);
     uttr.lang = 'ja-JP';  // 日本語指定
-    uttr.rate = 1.0;      // 読み上げ速度 (1.0 = 標準)
+    uttr.rate = 0.9;      // 読み上げ速度 (1.0 = 標準)
     uttr.pitch = 1.0;     // 声の高さ (1.0 = 標準)
 
     window.speechSynthesis.speak(uttr);
@@ -124,7 +124,7 @@
     const name = document.getElementById("studentName").value || "次のグループ";
     signalRef.set({
       type: "CALL",
-      text: name + " にゅうしつ、してください",
+      text: name + " 入室してください",
       timestamp: Date.now()
     });
   }
@@ -143,13 +143,15 @@
     const data = snapshot.val();
     if (!data) return;
 
+    // 画面には漢字表記の「data.text」を表示
     document.getElementById("statusDisplay").innerText = data.text;
 
     // 子機モードかつCALL信号を受信した場合
     const isChild = document.querySelector('input[name="role"]:checked').value === "child";
     if (isChild && data.type === "CALL") {
-      // チャイムを鳴らし、その後に「〇〇 入室してください」と読み上げる
-      playChimeAndSpeech(data.text);
+      // 送られてきた data.speech を音声で使用（無ければ data.text）
+      const textToSpeak = data.speech || data.text;
+      playChimeAndSpeech(textToSpeak);
     }
   });
 
